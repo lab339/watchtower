@@ -58,6 +58,9 @@ class DateRangePicker extends HTMLElement {
     const placeholder = this.getAttribute('placeholder') || 'Select date range';
     const startDate = this.getAttribute('start') || '';
     const endDate = this.getAttribute('end') || '';
+    const now = new Date();
+    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const maxDate = this.format(todayLocal);
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -141,6 +144,68 @@ class DateRangePicker extends HTMLElement {
           font-style: italic;
         }
 
+        .presets {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin-bottom: 6px;
+        }
+
+        .preset-btn {
+          appearance: none;
+          border: 1px solid #e5e7eb;
+          background: #fff;
+          color: #111827;
+          border-radius: 9999px;
+          padding: 6px 12px;
+          font-size: 0.8125rem;
+          cursor: pointer;
+          transition: all 0.15s ease-in-out;
+        }
+
+        .preset-btn:hover {
+          border-color: #d1d5db;
+          background: #f9fafb;
+        }
+
+        .preset-btn:active {
+          transform: translateY(1px);
+        }
+
+        .preset-btn.active {
+          background: #2563eb; /* blue-600 */
+          border-color: #2563eb;
+          color: #ffffff;
+        }
+
+        .preset-btn[disabled] {
+          opacity: 0.6;
+          cursor: default;
+        }
+
+        .preset-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .preset-label {
+          font-size: 0.8125rem;
+          font-weight: 600;
+          color: #374151;
+        }
+
+        .selection-summary {
+          font-size: 0.8125rem;
+          color: #374151;
+          background: #f3f4f6;
+          border: 1px solid #e5e7eb;
+          padding: 4px 8px;
+          border-radius: 9999px;
+          white-space: nowrap;
+        }
+
         .separator {
           color: #9ca3af;
           font-weight: 500;
@@ -161,6 +226,16 @@ class DateRangePicker extends HTMLElement {
       </style>
 
       <div class="date-range-container">
+        <div class="preset-bar">
+          <span class="preset-label">Choose a Date Range (Max 7 Days)</span>
+          <span id="selection-summary" class="selection-summary" aria-live="polite"></span>
+        </div>
+        <div class="presets" aria-label="Quick date ranges">
+          <button type="button" class="preset-btn" data-preset="today" title="Select today" aria-pressed="false">Today</button>
+          <button type="button" class="preset-btn" data-preset="yesterday" title="Select yesterday" aria-pressed="false">Yesterday</button>
+          <button type="button" class="preset-btn" data-preset="last7" title="Last 7 days including today" aria-pressed="false">Last 7 days</button>
+          <button type="button" class="preset-btn" data-preset="custom" title="Pick a custom range" aria-pressed="false">Custom</button>
+        </div>
         <div class="date-range-inputs">
           <div class="date-input-group">
             <label for="start-date">Start Date</label>
@@ -168,6 +243,7 @@ class DateRangePicker extends HTMLElement {
               type="date"
               id="start-date"
               value="${startDate}"
+              max="${maxDate}"
               required
             />
           </div>
@@ -178,6 +254,7 @@ class DateRangePicker extends HTMLElement {
               type="date"
               id="end-date"
               value="${endDate}"
+              max="${maxDate}"
               required
             />
           </div>
@@ -191,55 +268,98 @@ class DateRangePicker extends HTMLElement {
   setupEventListeners() {
     const startDateInput = this.shadowRoot.getElementById('start-date');
     const endDateInput = this.shadowRoot.getElementById('end-date');
+    const now = new Date();
+    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayISO = this.format(todayLocal);
+    // Enforce max selectable date as today
+    startDateInput.max = todayISO;
+    endDateInput.max = todayISO;
 
     // Handle start date changes with smart adjustment
     startDateInput.addEventListener('change', () => {
       if (!startDateInput.value) return;
+
+      // Clamp to today if future selected
+      if (startDateInput.value > todayISO) {
+        startDateInput.value = todayISO;
+      }
 
       endDateInput.min = startDateInput.value;
 
       if (endDateInput.value) {
         const currentDiff = this.calculateDaysDifference(startDateInput.value, endDateInput.value);
 
-        // If range exceeds 7 days or end date is before start date, auto-adjust
+        // If range exceeds 7 days or end date is before start date, clamp to max 7 days
         if (currentDiff > 7 || currentDiff < 0) {
-          // Use last valid difference, but cap at 7 days
-          const adjustmentDays = Math.min(this.lastValidDifference, 7);
-          const newEndDate = this.addDays(startDateInput.value, adjustmentDays);
+          const daysUntilToday = Math.max(0, Math.ceil((new Date(todayISO) - new Date(startDateInput.value)) / (1000 * 60 * 60 * 24)));
+          const clamped = Math.min(7, daysUntilToday);
+          const newEndDate = this.addDays(startDateInput.value, clamped);
           endDateInput.value = newEndDate;
         }
       } else {
-        // If no end date, set it to start date + last valid difference
-        const adjustmentDays = Math.min(this.lastValidDifference, 7);
-        endDateInput.value = this.addDays(startDateInput.value, adjustmentDays);
+        // If no end date, default to same day as start
+        endDateInput.value = startDateInput.value;
       }
 
       this.validateAndStoreDifference();
+      this.updateActivePresetFromInputs();
+      this.updateSelectionSummary();
     });
 
     // Handle end date changes with smart adjustment
     endDateInput.addEventListener('change', () => {
       if (!endDateInput.value) return;
 
+      // Clamp to today if future selected
+      if (endDateInput.value > todayISO) {
+        endDateInput.value = todayISO;
+      }
+
       startDateInput.max = endDateInput.value;
 
       if (startDateInput.value) {
         const currentDiff = this.calculateDaysDifference(startDateInput.value, endDateInput.value);
 
-        // If range exceeds 7 days or end date is before start date, auto-adjust
+        // If range exceeds 7 days or end date is before start date, clamp to max 7 days
         if (currentDiff > 7 || currentDiff < 0) {
-          // Use last valid difference, but cap at 7 days
-          const adjustmentDays = Math.min(this.lastValidDifference, 7);
-          const newStartDate = this.subtractDays(endDateInput.value, adjustmentDays);
+          const newStartDate = this.subtractDays(endDateInput.value, 7);
           startDateInput.value = newStartDate;
         }
       } else {
-        // If no start date, set it to end date - last valid difference
-        const adjustmentDays = Math.min(this.lastValidDifference, 7);
-        startDateInput.value = this.subtractDays(endDateInput.value, adjustmentDays);
+        // If no start date, default to same day as end
+        startDateInput.value = endDateInput.value;
       }
 
       this.validateAndStoreDifference();
+      this.updateActivePresetFromInputs();
+      this.updateSelectionSummary();
+    });
+
+    // Preset selection
+    const presets = this.shadowRoot.querySelector('.presets');
+    presets.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-preset]');
+      if (!btn) return;
+      const presetKey = btn.getAttribute('data-preset');
+      // Special handling for 'Custom': do not change dates, just enable free selection
+      if (presetKey === 'custom') {
+        this.setActivePreset('custom');
+        this.clearDynamicBounds();
+        const startDateInput = this.shadowRoot.getElementById('start-date');
+        startDateInput?.focus();
+        this.updateSelectionSummary();
+        return;
+      }
+      const { start, end } = this.getPresetDates(presetKey);
+      if (!start || !end) return;
+      this.setDates(start, end);
+      // Maintain last valid difference and emit change
+      this.lastValidDifference = this.calculateDaysDifference(start, end);
+      // Relax dynamic bounds so the user can freely choose a new custom range next
+      this.clearDynamicBounds();
+      this.emitDateRangeChanged(start, end);
+      this.setActivePreset(presetKey);
+      this.updateSelectionSummary();
     });
   }
 
@@ -271,6 +391,7 @@ class DateRangePicker extends HTMLElement {
 
         // Emit event when date range changes
         this.emitDateRangeChanged(startDateInput.value, endDateInput.value);
+        this.updateActivePresetFromInputs();
       }
     }
   }
@@ -353,9 +474,16 @@ class DateRangePicker extends HTMLElement {
   }
 
   setDates(startDate, endDate) {
-    this.setAttribute('start', startDate);
-    this.setAttribute('end', endDate);
+    const now = new Date();
+    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayISO = this.format(todayLocal);
+    const safeStart = startDate && startDate > todayISO ? todayISO : startDate;
+    const safeEnd = endDate && endDate > todayISO ? todayISO : endDate;
+    this.setAttribute('start', safeStart);
+    this.setAttribute('end', safeEnd);
     this.validateDates();
+    this.updateActivePresetFromInputs();
+    this.updateSelectionSummary();
   }
 
   getStartDate() {
@@ -371,6 +499,111 @@ class DateRangePicker extends HTMLElement {
   isValid() {
     const validation = this.validateDates();
     return validation.valid;
+  }
+
+  // Helpers for presets
+  format(date) {
+    return date.toISOString().split('T')[0];
+  }
+
+  clearDynamicBounds() {
+    const startDateInput = this.shadowRoot.getElementById('start-date');
+    const endDateInput = this.shadowRoot.getElementById('end-date');
+    const now = new Date();
+    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayISO = this.format(todayLocal);
+    // Allow picking either side first; invalid combos will be corrected by validation
+    startDateInput.min = '';
+    startDateInput.max = todayISO;
+    endDateInput.min = '';
+    endDateInput.max = todayISO;
+  }
+
+  getPresetDates(preset) {
+    const now = new Date();
+    // Ensure we operate on local midnight boundaries
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (preset === 'today') {
+      const d = this.format(today);
+      return { start: d, end: d };
+    }
+    if (preset === 'yesterday') {
+      const y = new Date(today);
+      y.setDate(y.getDate() - 1);
+      const d = this.format(y);
+      return { start: d, end: d };
+    }
+    if (preset === 'last7') {
+      const end = this.format(today);
+      const startDate = new Date(today);
+      startDate.setDate(startDate.getDate() - 6); // inclusive range of 7 days
+      const start = this.format(startDate);
+      return { start, end };
+    }
+    return { start: null, end: null };
+  }
+
+  setActivePreset(preset) {
+    const buttons = this.shadowRoot.querySelectorAll('.preset-btn');
+    buttons.forEach((b) => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
+    const match = this.shadowRoot.querySelector(`.preset-btn[data-preset="${preset}"]`);
+    if (match) {
+      match.classList.add('active');
+      match.setAttribute('aria-pressed', 'true');
+    }
+  }
+
+  updateActivePresetFromInputs() {
+    const start = this.getStartDate();
+    const end = this.getEndDate();
+    if (!start || !end) return;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStr = this.format(today);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = this.format(yesterday);
+    const last7Start = new Date(today);
+    last7Start.setDate(last7Start.getDate() - 6);
+    const last7StartStr = this.format(last7Start);
+
+    if (start === todayStr && end === todayStr) {
+      this.setActivePreset('today');
+    } else if (start === yesterdayStr && end === yesterdayStr) {
+      this.setActivePreset('yesterday');
+    } else if (start === last7StartStr && end === todayStr) {
+      this.setActivePreset('last7');
+    } else {
+      this.setActivePreset('custom');
+    }
+  }
+
+  // UX helpers
+  formatHuman(dateString) {
+    try {
+      const d = new Date(dateString);
+      return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch (e) {
+      return dateString;
+    }
+  }
+
+  updateSelectionSummary() {
+    const el = this.shadowRoot.getElementById('selection-summary');
+    if (!el) return;
+    const start = this.getStartDate();
+    const end = this.getEndDate();
+    if (!start || !end) {
+      el.textContent = '';
+      return;
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const dayMs = 1000 * 60 * 60 * 24;
+    const diffDaysInclusive = Math.floor((endDate - startDate) / dayMs) + 1;
+    const daysText = diffDaysInclusive === 1 ? '1 day' : `${diffDaysInclusive} days`;
+    el.textContent = `Selected: ${this.formatHuman(start)} → ${this.formatHuman(end)} (${daysText})`;
   }
 }
 

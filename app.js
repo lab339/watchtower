@@ -2,12 +2,40 @@ import DataLoader from './loader.js';
 import { fetchDomainKey } from './loader.js';
 import { DataChunks, series, facets } from '@adobe/rum-distiller';
 import URLAutocomplete from './components/url-autocomplete.js';
+import SourceFilter from './components/source-filter.js';
 import DateRangePicker from './components/date-range-picker.js';
 import ErrorDashboard from './dashboards/error-dashboard.js';
 import LoadDashboard from './dashboards/performance-dashboard.js';
 import EngagementDashboard from './dashboards/engagement-dashboard.js';
 import ResourceDashboard from './dashboards/resource-dashboard.js';
 import { errorDataChunks, performanceDataChunks, engagementDataChunks, resourceDataChunks } from './datachunks.js';
+
+// Initialize token and normalize URL params before fetching domain key
+(function initAuthAndParams() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    // 1) Consume token param to set persistent auth for bundler calls
+    const token = params.get('token');
+    if (token) {
+      localStorage.setItem('rum-bundler-token', token);
+      params.delete('token');
+    }
+    // 2) Normalize domain key param casing if user passed 'domainkey='
+    if (!params.get('domainKey') && params.get('domainkey')) {
+      const dk = params.get('domainkey');
+      params.delete('domainkey');
+      params.set('domainKey', dk);
+    }
+    // Apply cleaned URL (no page reload)
+    const newQuery = params.toString();
+    const newURL = `${window.location.pathname}${newQuery ? `?${newQuery}` : ''}`;
+    if (newURL !== window.location.pathname + window.location.search) {
+      window.history.replaceState({}, '', newURL);
+    }
+  } catch (e) {
+    // ignore
+  }
+})();
 
 const dataLoader = new DataLoader();
 const BUNDLER_ENDPOINT = 'https://bundles.aem.page';
@@ -24,6 +52,7 @@ function getURLParams() {
   return {
     tab: params.get('tab') || undefined,
     url: params.get('url') || undefined,
+    source: params.get('source') || undefined,
     startDate: params.get('startDate') || undefined,
     endDate: params.get('endDate') || undefined,
   };
@@ -76,13 +105,16 @@ async function renderFromURLParams() {
   const params = getURLParams();
   const dateRangePicker = document.getElementById('date-range-picker');
   const urlAutocomplete = document.getElementById('url-autocomplete');
+  const sourceFilter = document.getElementById('source-filter');
 
   const {
     startDate = dateRangePicker.getStartDate(),
     endDate = dateRangePicker.getEndDate(),
     url = urlAutocomplete.getValue(),
+    source: sourceParam,
     tab = 'error'
   } = params;
+  const sources = sourceParam ? sourceParam.split(',').filter(Boolean) : [];
   // Set active tab based on URL params
   const urlResults = document.getElementById('url-results');
 
@@ -105,6 +137,14 @@ async function renderFromURLParams() {
   if (currentUrl !== url) {
     urlAutocomplete.setValue(url);
   }
+  // Only update source if it's different
+  if (sourceFilter) {
+    const currentSources = (sourceFilter.getValue() || []).join(',');
+    const newSources = sources.join(',');
+    if (currentSources !== newSources) {
+      sourceFilter.setValue(sources);
+    }
+  }
 
   // If URL is specified, filter data and render dashboard
   if (url) {
@@ -112,7 +152,13 @@ async function renderFromURLParams() {
       const filteredData = currentData.map((chunk) => ({
         date: chunk.date,
         hour: chunk.hour,
-        rumBundles: chunk.rumBundles.filter((bundle) => bundle.url.includes(url))
+        rumBundles: chunk.rumBundles.filter((bundle) => {
+          const matchesUrl = bundle.url.includes(url);
+          const matchesSource = sources.length === 0 || bundle.events?.some(
+            (e) => e.checkpoint === 'enter' && e.source && sources.includes(e.source)
+          );
+          return matchesUrl && matchesSource;
+        })
       })).filter((chunk) => chunk.rumBundles.length > 0);
 
       if (filteredData.length > 0 && !filteredData.every(chunk => chunk.rumBundles.length === 0)) {
@@ -154,6 +200,21 @@ async function loadData(startDate, endDate) {
   const newUrls = newDataChunks.facets.url.map(url => url.value);
   const urlAutocomplete = document.getElementById('url-autocomplete');
   urlAutocomplete.setUrls(newUrls);
+  // Update sources for 'enter' checkpoint
+  const sourceFilter = document.getElementById('source-filter');
+  if (sourceFilter) {
+    const sourcesSet = new Set();
+    currentData.forEach((chunk) => {
+      chunk.rumBundles?.forEach((bundle) => {
+        bundle.events?.forEach((e) => {
+          if (e.checkpoint === 'enter' && e.source) {
+            sourcesSet.add(e.source);
+          }
+        });
+      });
+    });
+    sourceFilter.setSources(Array.from(sourcesSet));
+  }
 }
 
 
@@ -162,6 +223,7 @@ function setupEventListeners() {
   const urlAutocomplete = document.getElementById('url-autocomplete');
   const dateRangePicker = document.getElementById('date-range-picker');
   const dashboardTabs = document.querySelector('.dashboard-tabs');
+  const sourceFilter = document.getElementById('source-filter');
 
   // Handle tab clicks with event delegation on parent
   dashboardTabs.addEventListener('click', (e) => {
@@ -176,6 +238,12 @@ function setupEventListeners() {
     const url = event.detail.url;
     handleParamUpdate({ url });
   });
+  if (sourceFilter) {
+    sourceFilter.addEventListener('source-selected', (event) => {
+      const selected = event.detail.source || [];
+      handleParamUpdate({ source: selected.join(',') });
+    });
+  }
 
   // Date range change handler
   dateRangePicker.addEventListener('date-range-changed', async (event) => {
@@ -210,9 +278,11 @@ const today = new Date().toISOString().split('T')[0];
 const oneWeekAgo = new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0];
 dateRangePicker.setDates(oneWeekAgo, today);
 const urlAutocomplete = document.getElementById('url-autocomplete');
+const sourceFilter = document.getElementById('source-filter');
 const defaults = {
   tab: 'error',
   url: urlAutocomplete.getValue(),
+  source: (sourceFilter?.getValue() || []).join(','),
   startDate: dateRangePicker.getStartDate(),
   endDate: dateRangePicker.getEndDate()
 }
