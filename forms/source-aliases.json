@@ -22,6 +22,17 @@
     "https://pehchaan-pr.hdfcbank.com/",
     "https://pehchaan-dr.hdfcbank.com",
     "https://pehchaan-dr.hdfcbank.com/"
+  ],
+  "https://www.facebook.com": [
+    "https://www.facebook.com",
+    "https://www.facebook.com/",
+    "https://www.facebook.com/#",
+    "https://facebook.com",
+    "https://facebook.com/",
+    "https://facebook.com/#",
+    "https://m.facebook.com",
+    "https://m.facebook.com/",
+    "https://m.facebook.com/#"
   ]
 }
 
