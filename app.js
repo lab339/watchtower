@@ -100,6 +100,23 @@ const dataChunksConfig = {
   resource: resourceDataChunks
 }
 
+// Helper: compute unique 'enter' sources using DataChunks facets
+function computeEnterSources(chunks) {
+  try {
+    const dc = new DataChunks();
+    dc.load(chunks || []);
+    dc.addFacet('enterSource', (bundle) => {
+      return bundle.events
+        ?.filter((e) => e.checkpoint === 'enter' && e.source)
+        .map((e) => e.source);
+    }, 'every');
+    const values = (dc.facets?.enterSource || []).map((f) => f.value);
+    return Array.from(new Set(values)).sort();
+  } catch (e) {
+    return [];
+  }
+}
+
 // Single function to read URL params, set state, and render
 async function renderFromURLParams() {
   const params = getURLParams();
@@ -161,6 +178,12 @@ async function renderFromURLParams() {
         })
       })).filter((chunk) => chunk.rumBundles.length > 0);
 
+      // Update source options to reflect current URL selection
+      if (sourceFilter) {
+        const newSourceOptions = computeEnterSources(filteredData);
+        sourceFilter.setSources(newSourceOptions);
+      }
+
       if (filteredData.length > 0 && !filteredData.every(chunk => chunk.rumBundles.length === 0)) {
         // Render the dashboard based on the tab
         urlResults.innerHTML = '';
@@ -179,6 +202,10 @@ async function renderFromURLParams() {
       urlResults.innerHTML = '<p class="error">Error processing data. Please try again.</p>';
     }
   } else {
+    // If no URL filter, show all available sources for the date-range
+    if (sourceFilter) {
+      sourceFilter.setSources(computeEnterSources(currentData));
+    }
     urlResults.innerHTML = '<p>Please select a URL to view dashboard</p>';
   }
 }
@@ -200,20 +227,10 @@ async function loadData(startDate, endDate) {
   const newUrls = newDataChunks.facets.url.map(url => url.value);
   const urlAutocomplete = document.getElementById('url-autocomplete');
   urlAutocomplete.setUrls(newUrls);
-  // Update sources for 'enter' checkpoint
+  // Update sources for 'enter' checkpoint using facets
   const sourceFilter = document.getElementById('source-filter');
   if (sourceFilter) {
-    const sourcesSet = new Set();
-    currentData.forEach((chunk) => {
-      chunk.rumBundles?.forEach((bundle) => {
-        bundle.events?.forEach((e) => {
-          if (e.checkpoint === 'enter' && e.source) {
-            sourcesSet.add(e.source);
-          }
-        });
-      });
-    });
-    sourceFilter.setSources(Array.from(sourcesSet));
+    sourceFilter.setSources(computeEnterSources(currentData));
   }
 }
 
