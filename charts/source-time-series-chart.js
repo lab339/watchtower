@@ -77,6 +77,7 @@ class SourceTimeSeriesChart extends HTMLElement {
           color: #111827;
           word-break: break-all;
         }
+        .list-item.disabled { opacity: 0.5; }
         .swatch {
           width: 10px;
           height: 10px;
@@ -85,32 +86,6 @@ class SourceTimeSeriesChart extends HTMLElement {
         }
         .chart-container { position: relative; width: 100%; height: 360px; flex: 1; }
         .no-data { text-align: center; padding: 24px; color: #9ca3af; font-style: italic; }
-        .legend {
-          margin-top: 8px;
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-        .chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 4px 8px;
-          border: 1px solid #e5e7eb;
-          border-radius: 9999px;
-          font-size: 12px;
-          cursor: pointer;
-          user-select: none;
-          background: #fff;
-        }
-        .chip.disabled {
-          opacity: 0.5;
-        }
-        .chip .swatch {
-          width: 10px;
-          height: 10px;
-          border-radius: 9999px;
-        }
       </style>
       <div class="layout">
         <div class="list" id="source-list">
@@ -119,7 +94,6 @@ class SourceTimeSeriesChart extends HTMLElement {
         </div>
         <div class="chart-container">
           <canvas id="canvas"></canvas>
-          <div class="legend" id="legend"></div>
         </div>
       </div>
     `;
@@ -247,7 +221,6 @@ class SourceTimeSeriesChart extends HTMLElement {
     });
     this._rawHourData = rawHourData;
     this.updateList();
-    this.updateLegend();
   }
 
   updateChartData() {
@@ -274,7 +247,6 @@ class SourceTimeSeriesChart extends HTMLElement {
     this.chart.options.plugins.title.text = `Form Visibility Time by Source over Time - ${ttl}`;
     this.chart.update();
     this.updateList();
-    this.updateLegend();
   }
 
   // Helpers
@@ -320,38 +292,23 @@ class SourceTimeSeriesChart extends HTMLElement {
           : this.weightedPercentile(sorted, 0.5);
       }
       const color = this.pickColor(idx);
+      const ds = (this.chart?.data?.datasets || [])[idx];
+      const disabled = !!(ds && ds.hidden);
       fragments.push(`
-        <div class="list-item">
+        <div class="list-item ${disabled ? 'disabled' : ''}" data-idx="${idx}">
           <span class="swatch" style="background:${color}"></span>
           <span>${this.escapeHtml(s)} (${suffix}: ${this.formatTime(metric)})</span>
         </div>
       `);
     });
     body.innerHTML = fragments.join('');
-  }
-
-  updateLegend() {
-    const el = this.shadowRoot.getElementById('legend');
-    if (!el || !this.chart) return;
-    const datasets = this.chart.data.datasets || [];
-    const frag = [];
-    datasets.forEach((ds, idx) => {
-      const color = ds.borderColor;
-      const disabled = !!ds.hidden;
-      frag.push(`
-        <div class="chip ${disabled ? 'disabled' : ''}" data-idx="${idx}">
-          <span class="swatch" style="background:${color}"></span>
-          <span>${this.escapeHtml(ds.label)}</span>
-        </div>
-      `);
-    });
-    el.innerHTML = frag.join('');
-    el.querySelectorAll('.chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        const idx = Number(chip.getAttribute('data-idx'));
+    // Toggle dataset visibility on click
+    body.querySelectorAll('.list-item').forEach((row) => {
+      row.addEventListener('click', () => {
+        const idx = Number(row.getAttribute('data-idx'));
         const ds = this.chart.data.datasets[idx];
         ds.hidden = !ds.hidden;
-        chip.classList.toggle('disabled', !!ds.hidden);
+        row.classList.toggle('disabled', !!ds.hidden);
         this.chart.update();
       });
     });
