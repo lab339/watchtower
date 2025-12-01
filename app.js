@@ -166,23 +166,31 @@ async function renderFromURLParams() {
   // If URL is specified, filter data and render dashboard
   if (url) {
     try {
-      const filteredData = currentData.map((chunk) => ({
+      // 1) Filter only by URL for option building and baseline set
+      const urlOnlyData = currentData.map((chunk) => ({
         date: chunk.date,
         hour: chunk.hour,
-        rumBundles: chunk.rumBundles.filter((bundle) => {
-          const matchesUrl = bundle.url.includes(url);
-          const matchesSource = sources.length === 0 || bundle.events?.some(
-            (e) => e.checkpoint === 'enter' && e.source && sources.includes(e.source)
-          );
-          return matchesUrl && matchesSource;
-        })
+        rumBundles: chunk.rumBundles.filter((bundle) => bundle.url.includes(url))
       })).filter((chunk) => chunk.rumBundles.length > 0);
 
-      // Update source options to reflect current URL selection
+      // Update source options to reflect all sources for this URL (not filtered by selected sources)
       if (sourceFilter) {
-        const newSourceOptions = computeEnterSources(filteredData);
+        const newSourceOptions = computeEnterSources(urlOnlyData);
         sourceFilter.setSources(newSourceOptions);
       }
+
+      // 2) Apply source filters on top of URL filter for data rendering
+      const filteredData = (sources.length === 0)
+        ? urlOnlyData
+        : urlOnlyData.map((chunk) => ({
+            date: chunk.date,
+            hour: chunk.hour,
+            rumBundles: chunk.rumBundles.filter((bundle) => {
+              return bundle.events?.some(
+                (e) => e.checkpoint === 'enter' && e.source && sources.includes(e.source)
+              );
+            })
+          })).filter((chunk) => chunk.rumBundles.length > 0);
 
       if (filteredData.length > 0 && !filteredData.every(chunk => chunk.rumBundles.length === 0)) {
         // Render the dashboard based on the tab
