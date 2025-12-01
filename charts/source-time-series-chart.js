@@ -21,6 +21,10 @@ class SourceTimeSeriesChart extends HTMLElement {
     this.selectedPercentile = 'p50';
     this.thresholdSec = 120; // align with main chart threshold
     this.aliasMap = null; // alias -> canonical
+    this._hoursUTC = [];
+    this._seriesSources = [];
+    this._sourceHourToPoints = new Map();
+    this._sourceAllPoints = new Map();
   }
 
   static get observedAttributes() {
@@ -47,11 +51,76 @@ class SourceTimeSeriesChart extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; width: 100%; }
-        .chart-container { position: relative; width: 100%; height: 360px; }
+        .layout { display: flex; gap: 16px; align-items: stretch; }
+        .list {
+          width: 240px;
+          min-width: 200px;
+          max-height: 360px;
+          overflow: auto;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          padding: 8px;
+          background: #fff;
+        }
+        .list h4 {
+          margin: 0 0 8px 0;
+          font-size: 0.9rem;
+          color: #374151;
+        }
+        .list-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 0.82rem;
+          padding: 6px 4px;
+          border-bottom: 1px dashed #f1f5f9;
+          color: #111827;
+          word-break: break-all;
+        }
+        .swatch {
+          width: 10px;
+          height: 10px;
+          border-radius: 9999px;
+          flex: 0 0 10px;
+        }
+        .chart-container { position: relative; width: 100%; height: 360px; flex: 1; }
         .no-data { text-align: center; padding: 24px; color: #9ca3af; font-style: italic; }
+        .legend {
+          margin-top: 8px;
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 4px 8px;
+          border: 1px solid #e5e7eb;
+          border-radius: 9999px;
+          font-size: 12px;
+          cursor: pointer;
+          user-select: none;
+          background: #fff;
+        }
+        .chip.disabled {
+          opacity: 0.5;
+        }
+        .chip .swatch {
+          width: 10px;
+          height: 10px;
+          border-radius: 9999px;
+        }
       </style>
-      <div class="chart-container">
-        <canvas id="canvas"></canvas>
+      <div class="layout">
+        <div class="list" id="source-list">
+          <h4>Top Sources</h4>
+          <div id="list-body"></div>
+        </div>
+        <div class="chart-container">
+          <canvas id="canvas"></canvas>
+          <div class="legend" id="legend"></div>
+        </div>
       </div>
     `;
   }
@@ -79,7 +148,7 @@ class SourceTimeSeriesChart extends HTMLElement {
 
     // Aggregate: source -> hour(ISO string UTC) -> [{t,w}]
     const sourceHourToPoints = new Map();
-    const sourceWeights = new Map(); // overall weight per source for ranking
+    const sourceAllPoints = new Map(); // flattened for ranking by percentile
     for (const b of list) {
       const tSec = this.computeFormBlockLoadTime(b);
       if (tSec == null || tSec > this.thresholdSec) continue;
@@ -90,17 +159,25 @@ class SourceTimeSeriesChart extends HTMLElement {
         .map(e => this.normalizeSource(e.source));
       const uniqSources = Array.from(new Set(sources));
       for (const s of uniqSources) {
-        if (!sourceWeights.has(s)) sourceWeights.set(s, 0);
-        sourceWeights.set(s, sourceWeights.get(s) + w);
+        if (!sourceAllPoints.has(s)) sourceAllPoints.set(s, []);
+        sourceAllPoints.get(s).push({ t: tSec, w });
         const key = `${s}|${hourUTC}`;
         if (!sourceHourToPoints.has(key)) sourceHourToPoints.set(key, []);
         sourceHourToPoints.get(key).push({ t: tSec, w });
       }
     }
 
-    const sources = Array.from(sourceWeights.entries())
-      .sort((a,b)=> b[1]-a[1])
-      .map(([s])=>s);
+    const sources = Array.from(sourceAllPoints.entries())
+      .filter(([, pts]) => pts.length > 0)
+      .map(([s, pts]) => {
+        pts.sort((a,b)=>a.t-b.t);
+        const metric = this.selectedPercentile === 'p75'
+          ? this.weightedPercentile(pts, 0.75)
+          : this.weightedPercentile(pts, 0.5);
+        return { s, metric };
+      })
+      .sort((a,b)=> b.metric - a.metric)
+      .map(({ s }) => s);
 
     if (sources.length === 0) {
       this.reset();
@@ -115,36 +192,15 @@ class SourceTimeSeriesChart extends HTMLElement {
     const labels = hoursUTC.map(h => this.formatHour(h));
     const rawHourData = hoursUTC.slice();
 
-    // Prepare datasets (cap to top 10 sources by default)
+    // Prepare datasets (cap to top 10 sources by default) - sorted by selected percentile desc
     const maxSeries = 10;
     const seriesSources = sources.slice(0, Math.max(1, Math.min(maxSeries, sources.length)));
-    const datasets = seriesSources.map((s, idx) => {
-      const color = this.pickColor(idx);
-      const data = hoursUTC.map(h => {
-        const pts = sourceHourToPoints.get(`${s}|${h}`) || [];
-        if (!pts.length) return null;
-        pts.sort((a,b)=>a.t-b.t);
-        const val = this.selectedPercentile === 'p75'
-          ? this.weightedPercentile(pts, 0.75)
-          : this.weightedPercentile(pts, 0.5);
-        return val;
-      });
-      return {
-        label: s,
-        data,
-        borderColor: color,
-        backgroundColor: color.replace('1)', '0.1)').replace('rgb', 'rgba'),
-        borderWidth: 2,
-        spanGaps: true,
-        tension: 0.2,
-        pointRadius: 2
-      };
-    });
 
     // Persist for later percentile toggles
     this._hoursUTC = hoursUTC;
     this._seriesSources = seriesSources;
     this._sourceHourToPoints = sourceHourToPoints;
+    this._sourceAllPoints = sourceAllPoints;
 
     const ctx = this.shadowRoot.getElementById('canvas').getContext('2d');
     if (this.chart) this.chart.destroy();
@@ -164,7 +220,7 @@ class SourceTimeSeriesChart extends HTMLElement {
             showLegend: true,
             rawHourData
           },
-          legend: { position: 'bottom', labels: { usePointStyle: true } },
+          legend: { display: false },
           title: {
             display: true,
             text: `Form Visibility Time by Source over Time - ${this.selectedPercentile.toUpperCase()}`
@@ -190,15 +246,35 @@ class SourceTimeSeriesChart extends HTMLElement {
       }
     });
     this._rawHourData = rawHourData;
+    this.updateList();
+    this.updateLegend();
   }
 
   updateChartData() {
     if (!this.chart) return;
-    // Recompute datasets based on selected percentile
+    // Re-rank sources by selected percentile and rebuild datasets
+    if (this._sourceAllPoints && this._sourceAllPoints.size) {
+      const ranked = Array.from(this._sourceAllPoints.entries())
+        .filter(([, pts]) => pts.length > 0)
+        .map(([s, pts]) => {
+          const sorted = pts.slice().sort((a,b)=>a.t-b.t);
+          const metric = this.selectedPercentile === 'p75'
+            ? this.weightedPercentile(sorted, 0.75)
+            : this.weightedPercentile(sorted, 0.5);
+          return { s, metric };
+        })
+        .sort((a,b)=> b.metric - a.metric)
+        .map(({ s }) => s);
+      const maxSeries = 10;
+      this._seriesSources = ranked.slice(0, Math.max(1, Math.min(maxSeries, ranked.length)));
+    }
+
     this.chart.data.datasets = this.buildDatasets();
     const ttl = this.selectedPercentile === 'p75' ? 'p75' : 'p50 (Median)';
     this.chart.options.plugins.title.text = `Form Visibility Time by Source over Time - ${ttl}`;
     this.chart.update();
+    this.updateList();
+    this.updateLegend();
   }
 
   // Helpers
@@ -227,6 +303,60 @@ class SourceTimeSeriesChart extends HTMLElement {
     });
   }
 
+  updateList() {
+    const body = this.shadowRoot.getElementById('list-body');
+    if (!body) return;
+    const items = this._seriesSources || [];
+    const suffix = this.selectedPercentile === 'p75' ? 'p75' : 'p50';
+    const fragments = [];
+    items.forEach((s, idx) => {
+      // compute metric for display from flattened points
+      const pts = (this._sourceAllPoints && this._sourceAllPoints.get(s)) || [];
+      let metric = 0;
+      if (pts.length) {
+        const sorted = pts.slice().sort((a,b)=>a.t-b.t);
+        metric = this.selectedPercentile === 'p75'
+          ? this.weightedPercentile(sorted, 0.75)
+          : this.weightedPercentile(sorted, 0.5);
+      }
+      const color = this.pickColor(idx);
+      fragments.push(`
+        <div class="list-item">
+          <span class="swatch" style="background:${color}"></span>
+          <span>${this.escapeHtml(s)} (${suffix}: ${this.formatTime(metric)})</span>
+        </div>
+      `);
+    });
+    body.innerHTML = fragments.join('');
+  }
+
+  updateLegend() {
+    const el = this.shadowRoot.getElementById('legend');
+    if (!el || !this.chart) return;
+    const datasets = this.chart.data.datasets || [];
+    const frag = [];
+    datasets.forEach((ds, idx) => {
+      const color = ds.borderColor;
+      const disabled = !!ds.hidden;
+      frag.push(`
+        <div class="chip ${disabled ? 'disabled' : ''}" data-idx="${idx}">
+          <span class="swatch" style="background:${color}"></span>
+          <span>${this.escapeHtml(ds.label)}</span>
+        </div>
+      `);
+    });
+    el.innerHTML = frag.join('');
+    el.querySelectorAll('.chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const idx = Number(chip.getAttribute('data-idx'));
+        const ds = this.chart.data.datasets[idx];
+        ds.hidden = !ds.hidden;
+        chip.classList.toggle('disabled', !!ds.hidden);
+        this.chart.update();
+      });
+    });
+  }
+
   normalizeSource(src) {
     try {
       if (src.startsWith('http://') || src.startsWith('https://')) {
@@ -245,6 +375,12 @@ class SourceTimeSeriesChart extends HTMLElement {
       if (this.aliasMap && this.aliasMap[norm]) return this.aliasMap[norm];
       return norm;
     }
+  }
+
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = String(text ?? '');
+    return div.innerHTML;
   }
 
   computeFormBlockLoadTime(bundle) {
