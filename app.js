@@ -10,33 +10,6 @@ import EngagementDashboard from './dashboards/engagement-dashboard.js';
 import ResourceDashboard from './dashboards/resource-dashboard.js';
 import { errorDataChunks, performanceDataChunks, engagementDataChunks, resourceDataChunks } from './datachunks.js';
 
-// Initialize token and normalize URL params before fetching domain key
-(function initAuthAndParams() {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    // 1) Consume token param to set persistent auth for bundler calls
-    const token = params.get('token');
-    if (token) {
-      localStorage.setItem('rum-bundler-token', token);
-      params.delete('token');
-    }
-    // 2) Normalize domain key param casing if user passed 'domainkey='
-    if (!params.get('domainKey') && params.get('domainkey')) {
-      const dk = params.get('domainkey');
-      params.delete('domainkey');
-      params.set('domainKey', dk);
-    }
-    // Apply cleaned URL (no page reload)
-    const newQuery = params.toString();
-    const newURL = `${window.location.pathname}${newQuery ? `?${newQuery}` : ''}`;
-    if (newURL !== window.location.pathname + window.location.search) {
-      window.history.replaceState({}, '', newURL);
-    }
-  } catch (e) {
-    // ignore
-  }
-})();
-
 const dataLoader = new DataLoader();
 const BUNDLER_ENDPOINT = 'https://bundles.aem.page';
 dataLoader.apiEndpoint = BUNDLER_ENDPOINT;
