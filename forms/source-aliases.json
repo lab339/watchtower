@@ -33,6 +33,15 @@
     "https://m.facebook.com",
     "https://m.facebook.com/",
     "https://m.facebook.com/#"
+  ],
+  "https://idcom.hdfcbank.com": [
+    "https://idcom.hdfcbank.com",
+    "https://idcom.hdfcbank.com/",
+    "https://idcom.hdfcbank.com/#",
+    "https://idcom-pr.hdfcbank.com",
+    "https://idcom-pr.hdfcbank.com/",
+    "https://idcom-dr.hdfcbank.com",
+    "https://idcom-dr.hdfcbank.com/"
   ]
 }
 
