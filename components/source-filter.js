@@ -101,9 +101,10 @@ class SourceFilter extends HTMLElement {
     document.addEventListener('click', onDocClick, { once: true });
 
     search.addEventListener('focus', () => {
+      // Open dropdown without re-rendering to avoid focus→render→focus loops
       this.isOpen = true;
-      this.render(); this.setupEventListeners();
-      this.shadowRoot.getElementById('search').focus();
+      const dd = this.shadowRoot.getElementById('dropdown');
+      if (dd) dd.style.display = 'block';
     });
     search.addEventListener('input', () => {
       const q = search.value.trim().toLowerCase();
