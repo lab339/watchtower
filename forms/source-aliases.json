@@ -1,0 +1,47 @@
+{
+  "https://google.com": [
+    "https://google.com",
+    "https://google.com/",
+    "https://google.com/#"
+  ],
+  "https://www.youtube.com": [
+    "https://www.youtube.com",
+    "https://www.youtube.com/",
+    "https://www.youtube.com/#",
+    "https://youtube.com",
+    "https://youtube.com/",
+    "https://youtube.com/#",
+    "https://m.youtube.com",
+    "https://m.youtube.com/",
+    "https://m.youtube.com/#"
+  ],
+  "https://pehchaan.hdfcbank.com": [
+    "https://pehchaan.hdfcbank.com",
+    "https://pehchaan.hdfcbank.com/",
+    "https://pehchaan-pr.hdfcbank.com",
+    "https://pehchaan-pr.hdfcbank.com/",
+    "https://pehchaan-dr.hdfcbank.com",
+    "https://pehchaan-dr.hdfcbank.com/"
+  ],
+  "https://www.facebook.com": [
+    "https://www.facebook.com",
+    "https://www.facebook.com/",
+    "https://www.facebook.com/#",
+    "https://facebook.com",
+    "https://facebook.com/",
+    "https://facebook.com/#",
+    "https://m.facebook.com",
+    "https://m.facebook.com/",
+    "https://m.facebook.com/#"
+  ],
+  "https://idcom.hdfcbank.com": [
+    "https://idcom.hdfcbank.com",
+    "https://idcom.hdfcbank.com/",
+    "https://idcom.hdfcbank.com/#",
+    "https://idcom-pr.hdfcbank.com",
+    "https://idcom-pr.hdfcbank.com/",
+    "https://idcom-dr.hdfcbank.com",
+    "https://idcom-dr.hdfcbank.com/"
+  ]
+}
+
