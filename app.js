@@ -10,6 +10,8 @@ import EngagementDashboard from './dashboards/engagement-dashboard.js';
 import ResourceDashboard from './dashboards/resource-dashboard.js';
 import { errorDataChunks, performanceDataChunks, engagementDataChunks, resourceDataChunks } from './datachunks.js';
 
+
+
 const dataLoader = new DataLoader();
 const BUNDLER_ENDPOINT = 'https://bundles.aem.page';
 dataLoader.apiEndpoint = BUNDLER_ENDPOINT;
@@ -127,42 +129,37 @@ async function renderFromURLParams() {
   if (currentUrl !== url) {
     urlAutocomplete.setValue(url);
   }
-  // Only update source if it's different
-  if (sourceFilter) {
-    const currentSources = (sourceFilter.getValue() || []).join(',');
-    const newSources = sources.join(',');
-    if (currentSources !== newSources) {
-      sourceFilter.setValue(sources);
-    }
-  }
-
   // If URL is specified, filter data and render dashboard
   if (url) {
     try {
-      // 1) Filter only by URL for option building and baseline set
+      // Ensure data is loaded before rendering
+      if (!currentData || !Array.isArray(currentData)) {
+        await loadData(startDate, endDate);
+      }
+      // Start with URL-only filter
       const urlOnlyData = currentData.map((chunk) => ({
         date: chunk.date,
         hour: chunk.hour,
         rumBundles: chunk.rumBundles.filter((bundle) => bundle.url.includes(url))
       })).filter((chunk) => chunk.rumBundles.length > 0);
 
-      // Update source options to reflect all sources for this URL (not filtered by selected sources)
+      // Update source filter options for this URL
       if (sourceFilter) {
-        const newSourceOptions = computeEnterSources(urlOnlyData);
-        sourceFilter.setSources(newSourceOptions);
+        sourceFilter.setSources(computeEnterSources(urlOnlyData));
+        const currentSources = (sourceFilter.getValue() || []).join(',');
+        const newSources = sources.join(',');
+        if (currentSources !== newSources) sourceFilter.setValue(sources);
       }
 
-      // 2) Apply source filters on top of URL filter for data rendering
+      // Apply source selection if any
       const filteredData = (sources.length === 0)
         ? urlOnlyData
         : urlOnlyData.map((chunk) => ({
             date: chunk.date,
             hour: chunk.hour,
-            rumBundles: chunk.rumBundles.filter((bundle) => {
-              return bundle.events?.some(
-                (e) => e.checkpoint === 'enter' && e.source && sources.includes(e.source)
-              );
-            })
+            rumBundles: chunk.rumBundles.filter((bundle) =>
+              bundle.events?.some((e) => e.checkpoint === 'enter' && e.source && sources.includes(e.source))
+            )
           })).filter((chunk) => chunk.rumBundles.length > 0);
 
       if (filteredData.length > 0 && !filteredData.every(chunk => chunk.rumBundles.length === 0)) {
@@ -174,7 +171,8 @@ async function renderFromURLParams() {
         dataChunksForDashboard = dataChunksConfig[tab](filteredData);
         dashboardElement = document.createElement(`${tab}-dashboard`);
         urlResults.appendChild(dashboardElement);
-        dashboardElement.setData(dataChunksForDashboard, url);
+        // Pass filteredData as third arg so performance dashboard can aggregate sources fully
+        dashboardElement.setData(dataChunksForDashboard, url, filteredData);
       } else {
         urlResults.innerHTML = '<p>No data found for this URL</p>';
       }
@@ -183,10 +181,6 @@ async function renderFromURLParams() {
       urlResults.innerHTML = '<p class="error">Error processing data. Please try again.</p>';
     }
   } else {
-    // If no URL filter, show all available sources for the date-range
-    if (sourceFilter) {
-      sourceFilter.setSources(computeEnterSources(currentData));
-    }
     urlResults.innerHTML = '<p>Please select a URL to view dashboard</p>';
   }
 }
@@ -208,7 +202,6 @@ async function loadData(startDate, endDate) {
   const newUrls = newDataChunks.facets.url.map(url => url.value);
   const urlAutocomplete = document.getElementById('url-autocomplete');
   urlAutocomplete.setUrls(newUrls);
-  // Update sources for 'enter' checkpoint using facets
   const sourceFilter = document.getElementById('source-filter');
   if (sourceFilter) {
     sourceFilter.setSources(computeEnterSources(currentData));

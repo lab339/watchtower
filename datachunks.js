@@ -71,6 +71,31 @@ function loadresource(bundle) {
   .map(e => e.source);
 }
 
+function normalizeSourceValue(src) {
+  try {
+    // Normalize http/https URLs to origin + pathname without trailing slash or hash
+    if (src.startsWith('http://') || src.startsWith('https://')) {
+      const u = new URL(src);
+      let path = (u.pathname || '/').replace(/\/+$/, '');
+      // root path -> empty string for cleaner label
+      if (path === '') path = '';
+      return `${u.origin}${path}`;
+    }
+    // Strip trailing '/#' or '#' variants
+    return src.replace(/\/?#$/, '');
+  } catch (e) {
+    // Fallback: return as-is
+    return src;
+  }
+}
+
+function enterSourceFacet(bundle) {
+  return bundle.events
+    .filter(e => e.checkpoint === 'enter')
+    .filter(e => e.source && ['redacted', 'junk_email'].every(s => !e.source.toLowerCase().includes(s)))
+    .map(e => normalizeSourceValue(e.source));
+}
+
 function errorDataChunks(data) {
   const dataChunks = new DataChunks();
   dataChunks.load(data);
@@ -128,6 +153,7 @@ function performanceDataChunks(data) {
   dataChunks.addFacet('loadresource', loadresource, 'every');
 
   dataChunks.addFacet('hour', hour, 'every', 'none');
+  dataChunks.addFacet('enterSource', enterSourceFacet, 'every', 'none');
   return dataChunks;
 }
 

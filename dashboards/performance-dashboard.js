@@ -4,6 +4,7 @@
  */
 import '../charts/load-time-chart.js';
 import '../charts/load-time-histogram.js';
+import '../charts/source-time-chart.js';
 import '../charts/resource-time-table.js';
 
 class PerformanceDashboard extends HTMLElement {
@@ -210,6 +211,12 @@ class PerformanceDashboard extends HTMLElement {
 
         <load-time-histogram id="load-time-histogram"></load-time-histogram>
 
+        <div class="dashboard-header" style="margin-top:24px;">
+          <h3>By Source</h3>
+          <p class="description">Form visibility time by enter source (p50 & p75)</p>
+        </div>
+        <source-time-chart id="source-time-chart"></source-time-chart>
+
         <resource-time-table id="resource-time-table"></resource-time-table>
       </div>
     `;
@@ -219,23 +226,27 @@ class PerformanceDashboard extends HTMLElement {
     const statP50 = this.shadowRoot.getElementById('stat-p50');
     const statP75 = this.shadowRoot.getElementById('stat-p75');
     const chart = this.shadowRoot.getElementById('load-time-chart');
+    const sourceChart = this.shadowRoot.getElementById('source-time-chart');
 
     statP50.addEventListener('click', () => {
       statP50.classList.add('active');
       statP75.classList.remove('active');
       chart.setAttribute('percentile', 'p50');
+      sourceChart.setAttribute('percentile', 'p50');
     });
 
     statP75.addEventListener('click', () => {
       statP75.classList.add('active');
       statP50.classList.remove('active');
       chart.setAttribute('percentile', 'p75');
+      sourceChart.setAttribute('percentile', 'p75');
     });
   }
 
-  setData(dataChunks, url) {
+  setData(dataChunks, url, rawChunks) {
     this.dataChunks = dataChunks;
     this.url = url;
+    this.rawChunks = rawChunks;
     this.updateSummaryStats();
     this.updateChart();
     this.updateHistogram();
@@ -247,6 +258,15 @@ class PerformanceDashboard extends HTMLElement {
 
     const chart = this.shadowRoot.getElementById('load-time-chart');
     chart.setData(this.dataChunks.facets.hour);
+
+    const sourceChart = this.shadowRoot.getElementById('source-time-chart');
+    // Prefer raw aggregation to show all sources
+    const bundles = Array.isArray(this.rawChunks)
+      ? this.rawChunks.flatMap((c) => c.rumBundles || [])
+      : [];
+    if (bundles.length) sourceChart.setFromBundles(bundles);
+    else if (this.dataChunks.facets.enterSource) sourceChart.setData(this.dataChunks.facets.enterSource);
+    else sourceChart.reset();
   }
 
   updateHistogram() {
