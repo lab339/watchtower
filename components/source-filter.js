@@ -92,19 +92,22 @@ class SourceFilter extends HTMLElement {
     const dropdown = this.shadowRoot.getElementById('dropdown');
     const chips = this.shadowRoot.getElementById('chips');
     const clearBtn = this.shadowRoot.getElementById('clear');
-    const onDocClick = (e) => {
-      if (!this.contains(e.target)) {
-        this.isOpen = false;
-        this.render(); this.setupEventListeners();
-      }
-    };
-    document.addEventListener('click', onDocClick, { once: true });
 
     search.addEventListener('focus', () => {
       // Open dropdown without re-rendering to avoid focus→render→focus loops
       this.isOpen = true;
       const dd = this.shadowRoot.getElementById('dropdown');
       if (dd) dd.style.display = 'block';
+      this.attachOutsideListener();
+    });
+    search.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.isOpen = false;
+        const dd = this.shadowRoot.getElementById('dropdown');
+        if (dd) dd.style.display = 'none';
+        this.detachOutsideListener();
+        search.blur();
+      }
     });
     search.addEventListener('input', () => {
       const q = search.value.trim().toLowerCase();
@@ -154,6 +157,27 @@ class SourceFilter extends HTMLElement {
       this.emitChange();
       this.render(); this.setupEventListeners();
     });
+  }
+
+  attachOutsideListener() {
+    if (this._outsideHandler) return;
+    this._outsideHandler = (e) => {
+      const path = e.composedPath ? e.composedPath() : [];
+      if (!path.includes(this)) {
+        this.isOpen = false;
+        const dd = this.shadowRoot.getElementById('dropdown');
+        if (dd) dd.style.display = 'none';
+        this.detachOutsideListener();
+      }
+    };
+    document.addEventListener('mousedown', this._outsideHandler, true);
+  }
+
+  detachOutsideListener() {
+    if (this._outsideHandler) {
+      document.removeEventListener('mousedown', this._outsideHandler, true);
+      this._outsideHandler = null;
+    }
   }
 
   emitChange() {
