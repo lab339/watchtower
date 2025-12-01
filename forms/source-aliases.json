@@ -3,6 +3,17 @@
     "https://google.com",
     "https://google.com/",
     "https://google.com/#"
+  ],
+  "https://www.youtube.com": [
+    "https://www.youtube.com",
+    "https://www.youtube.com/",
+    "https://www.youtube.com/#",
+    "https://youtube.com",
+    "https://youtube.com/",
+    "https://youtube.com/#",
+    "https://m.youtube.com",
+    "https://m.youtube.com/",
+    "https://m.youtube.com/#"
   ]
 }
 
